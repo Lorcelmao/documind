@@ -4,6 +4,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { apiFetch, setAccessToken } from "@/lib/api";
 
+// FastAPI validation errors (422) put an object array in detail; only plain
+// string details are safe to render
+async function errorDetail(res: Response, fallback: string): Promise<string> {
+  const data = await res.json().catch(() => null);
+  return typeof data?.detail === "string" ? data.detail : fallback;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -21,13 +28,13 @@ export default function LoginPage() {
       if (mode === "register") {
         const res = await apiFetch("/auth/register", { method: "POST", body });
         if (!res.ok) {
-          setError((await res.json()).detail ?? "Registration failed");
+          setError(await errorDetail(res, "Registration failed"));
           return;
         }
       }
       const res = await apiFetch("/auth/login", { method: "POST", body });
       if (!res.ok) {
-        setError((await res.json()).detail ?? "Login failed");
+        setError(await errorDetail(res, "Login failed"));
         return;
       }
       setAccessToken((await res.json()).access_token);

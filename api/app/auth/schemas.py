@@ -10,7 +10,8 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    # bounded so oversized input cannot be fed into argon2
+    password: str = Field(max_length=128)
 
 
 class UserResponse(BaseModel):

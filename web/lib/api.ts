@@ -16,7 +16,20 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   return fetch(`${API_URL}${path}`, { ...init, headers, credentials: "include" });
 }
 
-export async function refreshSession(): Promise<boolean> {
+let refreshInFlight: Promise<boolean> | null = null;
+
+// Single-flight: concurrent callers share one request, so our own code never
+// replays a rotated refresh cookie (two tabs, re-run effects, parallel 401s).
+export function refreshSession(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+async function doRefresh(): Promise<boolean> {
   const res = await request("/auth/refresh", { method: "POST" });
   if (!res.ok) return false;
   const data = await res.json();

@@ -1,4 +1,7 @@
 from conftest import register_and_login
+from sqlalchemy import text
+
+from app.auth.security import hash_refresh_token
 
 
 async def test_register_returns_user(client):
@@ -64,7 +67,7 @@ async def test_refresh_rotates_token(client):
     assert client.cookies.get("refresh_token") != old_token
 
 
-async def test_refresh_reuse_revokes_all_sessions(client):
+async def test_refresh_reuse_within_grace_keeps_current_session(client):
     await register_and_login(client)
     old_token = client.cookies.get("refresh_token")
 
@@ -72,7 +75,35 @@ async def test_refresh_reuse_revokes_all_sessions(client):
     assert res.status_code == 200
     current_token = client.cookies.get("refresh_token")
 
-    # replaying the rotated-out token must fail and kill every session
+    # an immediate replay looks like a benign client race: rejected, no nuke
+    client.cookies.set("refresh_token", old_token)
+    res = await client.post("/auth/refresh")
+    assert res.status_code == 401
+
+    client.cookies.set("refresh_token", current_token)
+    res = await client.post("/auth/refresh")
+    assert res.status_code == 200
+
+
+async def test_refresh_reuse_after_grace_revokes_all_sessions(client, db_engine):
+    await register_and_login(client)
+    old_token = client.cookies.get("refresh_token")
+
+    res = await client.post("/auth/refresh")
+    assert res.status_code == 200
+    current_token = client.cookies.get("refresh_token")
+
+    # age the revocation past the grace window, then the replay counts as theft
+    async with db_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE refresh_tokens"
+                " SET revoked_at = revoked_at - interval '60 seconds'"
+                " WHERE token_hash = :token_hash"
+            ),
+            {"token_hash": hash_refresh_token(old_token)},
+        )
+
     client.cookies.set("refresh_token", old_token)
     res = await client.post("/auth/refresh")
     assert res.status_code == 401

@@ -6,14 +6,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.auth.router import router as auth_router
-from app.config import get_settings
+from app.config import DEV_JWT_SECRET, get_settings
 from app.database import engine
 from app.workspaces.router import router as workspaces_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.redis = aioredis.from_url(get_settings().redis_url)
+    settings = get_settings()
+    if settings.environment != "dev" and settings.jwt_secret == DEV_JWT_SECRET:
+        raise RuntimeError("JWT_SECRET is still the dev fallback; set a real secret")
+    app.state.redis = aioredis.from_url(settings.redis_url)
     yield
     await app.state.redis.aclose()
     await engine.dispose()
